@@ -82,6 +82,38 @@ void ClienteManual(char* path)
     return NULL;
 } 
 
+void ClienteAutomatico(){
+	char randomLine[4];
+	int burstAnswer;
+	burstAnswer= getLine ("Enter the max value of the random burst: ", randomLine, sizeof(randomLine));
+
+	//strtol
+	pthread_t threads[NTHREADS];
+  	void * retvals[NTHREADS];	
+	char* lines[NTHREADS];
+	int pos =0;
+    while (1){
+		lines[pos] = (char *) malloc(4);
+		strncpy(lines[pos],randomLine,4);
+		printf("He leido: %s\n",lines[pos]);			
+		pthread_create(&threads[pos],NULL,ThreadLogic,lines[pos]);				
+		pos++;
+				
+		time_t t;
+		srand((unsigned) time(&t));
+		int num = (rand() %(8 - 3 + 1)) + 3; 	
+		sleep(num); 
+	}
+
+	for (int i = 0; i < pos; i++){
+      if (pthread_join(threads[i], &retvals[i]) != 0)
+        {
+          fprintf(stderr, "error: Cannot join thread # %d\n", i);
+        }
+    }    
+    return NULL;
+}
+
 void* ThreadLogic(char* data){	
 	int sockfd, connfd; 
 	struct sockaddr_in servaddr, cli; 
@@ -118,13 +150,11 @@ void* ThreadLogic(char* data){
 	read(sockfd, data, sizeof(data)); 
 	printf("From Server : %s\n", data);
 	close(sockfd);
-
-}
+} // 5 3 --> PID
 
 int main() 
 { 
-	
-	
+
 	//Menú de selección de cliente
 	int rc;
     char buff[2];

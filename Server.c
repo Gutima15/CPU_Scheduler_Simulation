@@ -10,7 +10,7 @@
 #include <sys/types.h> 
 #include <pthread.h>
 #define PORT 8087
-#define MAX 4
+#define MAX 10
 #define SOCKETEROR (-1)
 #define SERVER_BACKLOG 12 //Cantidad máxima de conexiones
 #define NTHREADS 64
@@ -20,6 +20,7 @@ typedef struct sockaddr SA;
 int TiempoGlobal =0;
 int CPUOcioso =0;
 int cantProcesos=0;
+int PID = 1;
 // queue Ready;
 // queue finished;
 struct PCB{
@@ -86,18 +87,25 @@ void* job_scheduler (void* p_client_Socket){
     free(p_client_Socket); //We don't need it anymore..
     char buffer[MAX];
     size_t bytes_read;
-    int mjsSize= 0;
-    //char actualpath[PATH_MAX+1];
+    int mjsSize= 0;  
     //leemos el mjs del cliente
-
+    
     while (bytes_read = read(client_Socket, buffer, sizeof(buffer)) >0 )
     {
         check(bytes_read, "Recv error");
-        buffer[4] = '\0'; // terminate the mjs and remove the enter
+        buffer[MAX] = '\0'; // terminate the mjs and remove the enter
         printf ("\nREQUEST: %s\n",buffer);
         fflush(stdout);
-        printf("Esto se envía al cliente: %s\n",buffer);
-        write(client_Socket,buffer,sizeof(buffer));    
+        //Se crea la estructura          15                3
+        struct PCB p_c_b = {PID, atoi(&buffer[0]) , atoi(&buffer[2]) ,TiempoGlobal,0};        
+        //Agregarla a la cola
+        bzero(buffer, sizeof(buffer)); // limpiamos el buffer
+        buffer[0] = PID + '0';
+        printf("Esto se le envía al cliente %s\n",buffer);
+        write(client_Socket,buffer,sizeof(buffer));   
+        close(client_Socket); 
+        printf("closing connection\n");
+        PID++;
     }
     // read(client_Socket, buffer, sizeof(buffer));
     // buffer[4] = '\0'; // terminate the mjs and remove the enter
@@ -105,10 +113,7 @@ void* job_scheduler (void* p_client_Socket){
     // fflush(stdout);
     // printf("Esto se envía al cliente: %s\n",buffer);    
     // write(client_Socket,buffer,sizeof(buffer));    
-    //Aquí viene el buffer con los datos brust prioridad, se le deba dar el pci al proceso...
-    
-    close(client_Socket);
-    printf("closing connection\n");
+    //Aquí viene el buffer con los datos brust prioridad, se le deba dar el pci al proceso...        
     return NULL;
     
 }
