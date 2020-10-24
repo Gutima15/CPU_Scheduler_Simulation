@@ -5,7 +5,10 @@
 #include <sys/socket.h> 
 #include <pthread.h>
 #include <time.h> 
-#define MAX __SIZEOF_INT__*3
+#include <termios.h>
+#include <unistd.h>
+#include <fcntl.h>
+#define MAX 6
 #define PORT 8087 
 #define SA struct sockaddr 
 #define OK       0
@@ -44,24 +47,48 @@ static int getLine (char *prmpt, char *buff, size_t sz) {
     return OK;
 }
 
+int kbhit(void){
+  struct termios oldt, newt;
+  int ch;
+  int oldf;
+
+  tcgetattr(STDIN_FILENO, &oldt);
+  newt = oldt;
+  newt.c_lflag &= ~(ICANON | ECHO);
+  tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+  oldf = fcntl(STDIN_FILENO, F_GETFL, 0);
+  fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
+
+  ch = getchar();
+
+  tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+  fcntl(STDIN_FILENO, F_SETFL, oldf);
+
+  if(ch != EOF)
+  {
+    ungetc(ch, stdin);
+    return 1;
+  }
+  return 0;
+}
+
 void ClienteManual(char* path) 
-{ 	
-	
+{ 		
 	FILE *fp;
 	fp = fopen(path, "r");
     if(fp == NULL){
         printf("Error(open): %s\n", path);        
         return;
     }			
-	char line[4];
+	char line[MAX];
 	pthread_t threads[NTHREADS];
   	void * retvals[NTHREADS];	
 	char* lines[NTHREADS];
 	int pos =0;
     while (fgets(line, MAX, fp) != NULL){
-		if (line[0] != 'b' && line[0] != 'B'){						
-			lines[pos] = (char *) malloc(4);
-			strncpy(lines[pos],line,4);
+		if (line[0] != 'b' && line[0] != 'B'){
+			lines[pos] = (char *) malloc(6);
+			strncpy(lines[pos],line,6);
 			printf("He leido: %s\n",lines[pos]);			
 			pthread_create(&threads[pos],NULL,ThreadLogic,lines[pos]);				
 			pos++;
@@ -83,26 +110,47 @@ void ClienteManual(char* path)
 } 
 
 void ClienteAutomatico(){
-	char randomLine[4];
+	char valueFromUser[8];
+	char timebp[3];
+	char randomLine[MAX+1];
 	int burstAnswer;
-	burstAnswer= getLine ("Enter the max value of the random burst: ", randomLine, sizeof(randomLine));
-
-	//strtol
+	int timeBetweenProcess;
+	burstAnswer= getLine ("Enter the max value of the random burst: ", valueFromUser, sizeof(valueFromUser)); 
+	// validación para ver si es mayor a 2 dígitos
+	timeBetweenProcess = getLine ("Enter the value between process creation: ", timebp, sizeof(timebp)); 
+	time_t t;
+	srand((unsigned) time(&t));
+	
 	pthread_t threads[NTHREADS];
   	void * retvals[NTHREADS];	
 	char* lines[NTHREADS];
-	int pos =0;
-    while (1){
-		lines[pos] = (char *) malloc(4);
-		strncpy(lines[pos],randomLine,4);
-		printf("He leido: %s\n",lines[pos]);			
+	int pos =0;	
+    while (!kbhit()){		//Arreglar ciclo
+		puts("antes del burst");
+		printf("Max burst: %s, tamaño: %d\n",valueFromUser, sizeof(valueFromUser));
+		int randomMax = atoi(valueFromUser);
+		int num = (rand() %(randomMax)+1); 	
+		printf("burst: %d\n",num);
+		char numstr[3];
+		sprintf(numstr,"%d",num);	
+		strcpy(randomLine,"");	
+		
+		strcat(randomLine,numstr);  
+		strcat(randomLine," ");
+		
+		bzero(numstr,sizeof(numstr));
+		num = (rand()%5)+1;
+		sprintf(numstr,"%d",num);
+		strcat(randomLine,numstr);
+		bzero(numstr,sizeof(numstr));
+		
+		lines[pos] = (char *) malloc(6);
+		strncpy(lines[pos],randomLine,6);
+		
 		pthread_create(&threads[pos],NULL,ThreadLogic,lines[pos]);				
-		pos++;
-				
-		time_t t;
-		srand((unsigned) time(&t));
-		int num = (rand() %(8 - 3 + 1)) + 3; 	
-		sleep(num); 
+		pos++;			
+		sleep(atoi(timebp)); 
+
 	}
 
 	for (int i = 0; i < pos; i++){
@@ -142,7 +190,7 @@ void* ThreadLogic(char* data){
 		printf("connected to the server..\n"); 
 	//--------------------
 	int rest =0;
-	printf("He leido del thread: %s\n",data);
+	printf("He leido del thread: %s\n",data); 	
 	sleep(2); //los 2 segundos de sleep antes de enviar los datos.
 	write(sockfd, data, sizeof(data)); 
 	//recibimiento
@@ -150,7 +198,7 @@ void* ThreadLogic(char* data){
 	read(sockfd, data, sizeof(data)); 
 	printf("From Server : %s\n", data);
 	close(sockfd);
-} // 5 3 --> PID
+} 
 
 int main() 
 { 
@@ -171,11 +219,18 @@ int main()
         
     }
     if (buff[0]== '1'){
-        printf ("You select #%s the manual client.\n", buff);    		
+        printf ("You have select #%s. The manual client.\n", buff);    		
     	char path[4096];
 		rc = getLine ("Enter the path of the process file: ", path, sizeof(path));
 		ClienteManual(path);
     }
+	if (buff[0]=='2'){
+		printf ("Your have select #%s. The automatic client.\n");
+		ClienteAutomatico();
+	}
+	if (buff[0]!='1' && buff[0]!='2'){
+		puts("Incorrect data. Try again.\n");
+	}
     
 	// close the socket 
 	

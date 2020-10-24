@@ -86,8 +86,7 @@ void* job_scheduler (void* p_client_Socket){
     int client_Socket = *((int*)p_client_Socket);
     free(p_client_Socket); //We don't need it anymore..
     char buffer[MAX];
-    size_t bytes_read;
-    int mjsSize= 0;  
+    size_t bytes_read; 
     //leemos el mjs del cliente
     
     while (bytes_read = read(client_Socket, buffer, sizeof(buffer)) >0 )
@@ -97,10 +96,15 @@ void* job_scheduler (void* p_client_Socket){
         printf ("\nREQUEST: %s\n",buffer);
         fflush(stdout);
         //Se crea la estructura          15                3
-        struct PCB p_c_b = {PID, atoi(&buffer[0]) , atoi(&buffer[2]) ,TiempoGlobal,0};        
+        char* p = buffer;
+        char* midPoint;
+	    long int burst = strtol(p,&midPoint,10);
+	    p = midPoint;
+	    long int priority = strtol(p,&midPoint,10);        
+        struct PCB p_c_b = {PID, (int)(burst) , (int)(priority) ,TiempoGlobal,0};                
         //Agregarla a la cola
         bzero(buffer, sizeof(buffer)); // limpiamos el buffer
-        buffer[0] = PID + '0';
+		sprintf(buffer,"%d",PID);
         printf("Esto se le envía al cliente %s\n",buffer);
         write(client_Socket,buffer,sizeof(buffer));   
         close(client_Socket); 
