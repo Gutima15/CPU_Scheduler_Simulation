@@ -16,11 +16,6 @@
 #define TOO_LONG 2
 #define NTHREADS 64
 
-pthread_mutex_t lock= PTHREAD_MUTEX_INITIALIZER;
-struct socketInfo{ 
-    int sfd; 
-	char* b;
-};
 void* ThreadLogic(char* data );
 
 static int getLine (char *prmpt, char *buff, size_t sz) {
@@ -88,8 +83,7 @@ void ClienteManual(char* path)
     while (fgets(line, MAX, fp) != NULL){
 		if (line[0] != 'b' && line[0] != 'B'){
 			lines[pos] = (char *) malloc(6);
-			strncpy(lines[pos],line,6);
-			printf("He leido: %s\n",lines[pos]);			
+			strncpy(lines[pos],line,6);			
 			pthread_create(&threads[pos],NULL,ThreadLogic,lines[pos]);				
 			pos++;
 		}		
@@ -115,8 +109,7 @@ void ClienteAutomatico(){
 	char randomLine[MAX+1];
 	int burstAnswer;
 	int timeBetweenProcess;
-	burstAnswer= getLine ("Enter the max value of the random burst: ", valueFromUser, sizeof(valueFromUser)); 
-	// validación para ver si es mayor a 2 dígitos
+	burstAnswer= getLine ("Enter the max value of the random burst: ", valueFromUser, sizeof(valueFromUser)); 	
 	timeBetweenProcess = getLine ("Enter the value between process creation: ", timebp, sizeof(timebp)); 
 	time_t t;
 	srand((unsigned) time(&t));
@@ -125,12 +118,9 @@ void ClienteAutomatico(){
   	void * retvals[NTHREADS];	
 	char* lines[NTHREADS];
 	int pos =0;	
-    while (!kbhit()){		//Arreglar ciclo
-		puts("antes del burst");
-		printf("Max burst: %s, tamaño: %d\n",valueFromUser, sizeof(valueFromUser));
+    while (!kbhit()){
 		int randomMax = atoi(valueFromUser);
 		int num = (rand() %(randomMax)+1); 	
-		printf("burst: %d\n",num);
 		char numstr[3];
 		sprintf(numstr,"%d",num);	
 		strcpy(randomLine,"");	
@@ -143,14 +133,13 @@ void ClienteAutomatico(){
 		sprintf(numstr,"%d",num);
 		strcat(randomLine,numstr);
 		bzero(numstr,sizeof(numstr));
-		
+
 		lines[pos] = (char *) malloc(6);
 		strncpy(lines[pos],randomLine,6);
 		
 		pthread_create(&threads[pos],NULL,ThreadLogic,lines[pos]);				
 		pos++;			
-		sleep(atoi(timebp)); 
-
+		sleep(atoi(timebp));
 	}
 
 	for (int i = 0; i < pos; i++){
@@ -190,13 +179,13 @@ void* ThreadLogic(char* data){
 		printf("connected to the server..\n"); 
 	//--------------------
 	int rest =0;
-	printf("He leido del thread: %s\n",data); 	
+	printf("Read from thread: %s\n",data); 	
 	sleep(2); //los 2 segundos de sleep antes de enviar los datos.
 	write(sockfd, data, sizeof(data)); 
 	//recibimiento
 	
 	read(sockfd, data, sizeof(data)); 
-	printf("From Server : %s\n", data);
+	printf("PID from server: %s\n", data);
 	close(sockfd);
 } 
 
