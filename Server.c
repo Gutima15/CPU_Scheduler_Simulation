@@ -43,18 +43,39 @@ bool flag= true;
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 // queue finished;
 
+static int getLine (char *prmpt, char *buff, size_t sz) {
+    int ch, extra;
 
+    // Get line with buffer overrun protection.
+    if (prmpt != NULL) {
+        printf ("%s", prmpt);
+        fflush (stdout);
+    }
+    if (fgets (buff, sz, stdin) == NULL)
+        return 1;
+
+    // If it was too long, there'll be no newline. In that case, we flush
+    // to end of line so that excess doesn't affect the next call.
+    if (buff[strlen(buff)-1] != '\n') {
+        extra = 0;
+        while (((ch = getchar()) != '\n') && (ch != EOF))
+            extra = 1;
+        return (extra == 1) ? 2 : 0;
+    }
+    // Otherwise remove newline and give string back to caller.
+    buff[strlen(buff)-1] = '\0';
+    return 0;
+}
 void print_list(node_ready * head) {        
     if(head != NULL){
         node_ready * current = head;    
-        printf("HEAD MEMORY BEFORE %p\n",head);
         while (current != NULL) {
             puts("dentro del print list while");
             printf("PID: %d\t Burst: %d\t Priority: %d\n", current->val->PID, current->val->burst, current->val->prioridad);
             current = current->next;
         }
-        printf("HEAD MEMORY AFTER %p\n",head);
-    }                    
+    }
+    flag= !flag;                    
 }
 
 //Ingresa valores al final de la cola
@@ -77,7 +98,7 @@ node_ready* push(node_ready * head, struct PCB val) {
         }
         /* now we can add a new variable */
         current->next = (node_ready *) malloc(sizeof(node_ready));
-         current->next->val = (struct PCB*) malloc(sizeof(struct PCB));
+        current->next->val = (struct PCB*) malloc(sizeof(struct PCB));
         current->next->val->PID = val.PID;
         current->next->val->burst = val.burst;
         current->next->val->prioridad = val.prioridad;
@@ -108,6 +129,9 @@ struct PCB *pop(node_ready ** head) {
 
 void* job_scheduler(void* client_Socket);
 void* consult_queue(void* queue);
+void* timeG();
+void* fifo ();
+void * RR (void* quantum);
 void changemode(int);
 int  kbhit(void);
 
@@ -115,16 +139,16 @@ int check(int exp, const char* mjs);
 int kbhit (void)
 {
   struct timeval tv;
-  fd_set rdfs;
-
+  fd_set *rdfs;
+  rdfs = (fd_set*)malloc(sizeof(fd_set));
   tv.tv_sec = 0;
   tv.tv_usec = 0;
 
-  FD_ZERO(&rdfs);
-  FD_SET (STDIN_FILENO, &rdfs);
-
-  select(STDIN_FILENO+1, &rdfs, NULL, NULL, &tv);
-  return FD_ISSET(STDIN_FILENO, &rdfs);
+  FD_ZERO(rdfs);
+  FD_SET (STDIN_FILENO, rdfs);
+  select(STDIN_FILENO+1, rdfs, NULL, NULL, &tv);  
+  int returnValue = FD_ISSET(STDIN_FILENO, rdfs);    
+  return returnValue;
 }
 void changemode(int dir){
   static struct termios oldt, newt;
@@ -142,6 +166,37 @@ void changemode(int dir){
 // Driver function
 int main() 
 { 
+     /******Menú de selección del algoritmo*******/
+    char answer[2];
+    char quantum[2];
+    int validateAlgorithm = getLine("1.FIFO\n2.SJF\n3.HPF\n4.Round Robin.\nSelect the number of scheduler algorithm: ",answer,sizeof(answer));
+    if(validateAlgorithm == 1){
+        puts("You have no select anything, try again.");
+        return 0;
+    }
+    if(validateAlgorithm == 2){
+        puts("Your input is too long, try again.");
+        return 0;
+    }
+    if (answer[0]!='1' && answer[0]!='2' && answer[0]!='3' && answer[0]!='4'){
+        puts("That is an invalid number, please try again.");
+        return 0;
+    }
+    if(answer[0]=='4'){
+        int q= getLine("Select the quantum of the algorithm: ",quantum,sizeof(quantum));
+        if(q == 1){
+        puts("You have no select anything, try again.");
+        return 0;
+        }
+        if(q == 2){
+            puts("Your input is too long, try again.");
+            return 0;
+        }
+    }
+    
+    printf("You have select the option #%s",answer);
+
+    /******lógica de conexión al del servidor*******/
 	int server_socket, client_socket, addr_size;
     SA_IN server_addr, client_addr;
     //Create socket verification
@@ -160,11 +215,9 @@ int main()
 
 	// Now server is ready to listen and verification 
     check((listen(server_socket, SERVER_BACKLOG)),"Listen failed");
-	printf("Server listening..\n"); 
-
-    //selecciona el algoritmo
-    //puts("press any key to consult the ready queue.")
-    //sleep(3)
+	printf("Server listening..\n");   
+    
+    /******Ciclo principal*******/
     while(true){
         printf("waiting for connections\n");
         //wait for, and eventually accept an incoming connection
@@ -174,18 +227,38 @@ int main()
                 "Accept failed");
         printf("Connected\n");    
         // hacer nuestra lógica con conexiones        
+        
+
+        consult_queue(ready_queue);
+        
         pthread_t t;
         int*pclient = malloc(sizeof(int));
         *pclient = client_socket;        
         pthread_create(&t,NULL,job_scheduler,pclient);
-        
-        
-        //Thread de la ready queue.
-        pthread_t tqueue;
-        pthread_create(&tqueue,NULL,consult_queue,ready_queue);        
-        //pthread_join(&t,NULL);
+
+        pthread_t t_time;
+        pthread_create(&t_time,NULL,timeG,NULL);
+
+        if(answer[0] == '1'){
+            //pthread_t t_fifo;
+            //pthread_create(&t_fifo,NULL,fifo,NULL);
+
+        }
+        if(answer[0] == '2'){
+            puts("not implemented yet");
+            
+        }
+        if(answer[0] == '3'){
+            puts("not implemented yet");
+        }
+        if(answer[0] == '4'){
+            //pthread_t t_RR;
+            //pthread_create(&t_RR,NULL,RR,quantum);
+        }
+
     }
-    
+    /******Impresión final*******/
+    printFinish();
     return 0;
 } 
 int check(int exp, const char *mjs){
@@ -231,14 +304,87 @@ void* job_scheduler (void* p_client_Socket){
     
 }
 
-void* consult_queue(void* queue){    
-      
-    if (kbhit() && flag){
-    flag = !flag;
-    node_ready rq = *((node_ready*)queue);
-    free(queue); //We don't need it anymore..
-    print_list(&rq);
+void* fifo (){
+    struct PCB* p_PCB = pop(ready_queue);   //Pasa a ejecutarse el proceso.
+    struct PCB PCB = *((struct PCB*)p_PCB);
+    
+    pthread_mutex_lock(&lock);
+    PCB.tLlegada= TiempoGlobal;           //Se le asigna el tiempo de entrada al procesador
+    pthread_mutex_unlock(&lock);
+    
+    for(int i; i<PCB.burst;i++){           //Ejecuto
+            sleep(1);
+    }
+    pthread_mutex_lock(&lock); 
+    PCB.tSalida = TiempoGlobal;           //Se le asigna el tiempo de salida del procesador
+    pthread_mutex_unlock(&lock);
+
+    finish_queue = push(finish_queue,PCB); //Se agrega el proceso a la cola de terminados
+    cantProcesos++;
+}
+
+void * RR (void* quantum){
+    struct PCB* p_PCB = pop(ready_queue);   //Pasa a ejecutarse el proceso.
+    struct PCB PCB = *((struct PCB*)p_PCB);
+    
+    char *q = malloc(sizeof(2));
+    q=quantum;
+    
+    pthread_mutex_lock(&lock);
+    PCB.tLlegada= TiempoGlobal;           //Se le asigna el tiempo de entrada al procesador
+    pthread_mutex_unlock(&lock);
+    
+    for(int i; i<atoi(q[0]);;i++){           //Ejecuto
+            sleep(1);
+            PCB.burst= PCB.burst-1;            
+    }
+    if(PCB.burst!=0){
+        pthread_mutex_lock(&lock); 
+        ready_queue = push(ready_queue,PCB); //reingresa a la cola del ready.
+        pthread_mutex_unlock(&lock);
+    }else{
+        pthread_mutex_lock(&lock); 
+        PCB.tSalida = TiempoGlobal;           //Se le asigna el tiempo de salida del procesador
+        pthread_mutex_unlock(&lock);
+
+        finish_queue = push(finish_queue,PCB); //Se agrega el proceso a la cola de terminados
+        cantProcesos++;
     }
     
+}
+
+void* timeG(){
+    pthread_mutex_lock(&lock);
+    TiempoGlobal++;
+    pthread_mutex_unlock(&lock);
+}
+
+void printFinish(){
+    printf("Number of executed process: %d\n", cantProcesos); //Cantidad de procesos ejecutados
+    //Cantidad de segundos con CPU ocioso. Pendiente... //
+    int promTAT =0;
+    int promWT =0;
+    if(finish_queue != NULL){
+        node_ready * current = finish_queue;    
+        while (current != NULL) {                            //•Tabla de TAT y WT para los procesos ejecutados
+            int TAT= current->val->tSalida - current->val->tLlegada;
+            int WT = TAT - current->val->burst;
+            promTAT+=TAT;
+            promWT+=WT;
+            printf("Proceso p%d  TAT:%d WT%d\n",current->val->PID,TAT,WT);
+            current = current->next;
+        }
+                                                            //•Promedio de Waiting Time•Promedio de Turn Around Time  
+        printf("Promedio del TAT:%d Promedio del WT%d\n",(promTAT/cantProcesos),(promWT/cantProcesos));
+    }
+    
+      
+}
+
+void* consult_queue(void* queue){        
+    if (kbhit() && flag){    
+    node_ready rq = *((node_ready*)queue);
+    print_list(&rq);
+    }
     
 }

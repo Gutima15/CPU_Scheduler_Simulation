@@ -1,15 +1,25 @@
-#include <netdb.h> 
 #include <stdio.h> 
+#include <netdb.h> 
+#include <unistd.h>
+#include <netinet/in.h> 
+#include <stdbool.h>
+#include <limits.h>
 #include <stdlib.h> 
 #include <string.h> 
 #include <sys/socket.h> 
-#include <pthread.h>
-#include <time.h> 
+#include <sys/types.h> 
+#include <termios.h>
+#include <fcntl.h>
+#include <sys/time.h>
+#include <sys/select.h>
+#include <stropts.h>
+#include <sys/ioctl.h>
+#include<pthread.h>
 #define OK       0
 #define NO_INPUT 1
 #define TOO_LONG 2
 
-static int getLine (char *prmpt, char *buff, size_t sz) {
+/*static int getLine (char *prmpt, char *buff, size_t sz) {
     int ch, extra;
 
     // Get line with buffer overrun protection.
@@ -33,25 +43,33 @@ static int getLine (char *prmpt, char *buff, size_t sz) {
     buff[strlen(buff)-1] = '\0';
     return OK;
 }
-int main() {
-    int rc;
-    char buff[2];
+*/
 
-    rc = getLine ("Enter string> ", buff, sizeof(buff));
-    if (rc == NO_INPUT) {
-        // Extra NL since my system doesn't output that on EOF.
-        printf ("\nNo input\n");
-        return 1;
-    }
+void *consultar(){
+    char ch;
+    while(true)
+	{
+		printf("Enter any character: ");
+		//read a single character
+		ch=fgetc(stdin);
+		
+		if(ch==0x0A)
+		{
+			printf("ENTER KEY is pressed.\n");
+			break;
+		}
+		else
+		{
+			printf("\n%c is pressed.\n",ch);
+		}
 
-    if (rc == TOO_LONG) {
-        printf ("Input too long [%s]\n", buff);
-        return 1;
-    }
-    if (buff[0]== '1'){
-        printf ("soy el número [%s]\n", buff);    
-    }
-    printf ("OK [%s]\n", buff);
-
-    return 0;
+	}
 }
+
+int main()
+{
+	char ch;
+	//infinite loop	
+	return 0;
+}
+
