@@ -66,7 +66,7 @@ static int getLine (char *prmpt, char *buff, size_t sz) {
     buff[strlen(buff)-1] = '\0';
     return 0;
 }
-void print_list(node_ready * head) {
+void print_list(node_ready * head) {        
     if(head != NULL){
         node_ready * current = head;    
         while (current != NULL) {
@@ -77,12 +77,11 @@ void print_list(node_ready * head) {
     flag= !flag;                    
 }
 
-void print_process(struct PCB * pr){     
+void print_process(struct PCB * pr){
     if(pr != NULL){
         printf("PID: %d\t Burst: %d\t Priority: %d\n", pr->PID, pr->burst, pr->prioridad);
     }
 }
-
 //Ingresa valores al final de la cola
 node_ready* push(node_ready * head, struct PCB val) {
     if(head == NULL){
@@ -131,34 +130,42 @@ struct PCB *pop(node_ready ** head) {
     return retval;
 }
 
-struct PCB *pop_spf(node_ready **head){ 
-    struct PCB *retval = NULL;
-    node_ready * next_node = NULL;
-    node_ready * toRemove = NULL;
-
-    if(*head == NULL){
-        return NULL;
-    }
-
-
-    int min_burst = INT_MAX; 
-
-    while((*head) != NULL){
-        if((*head)->val->burst < min_burst){
-            min_burst = (*head)->val->burst;
-            toRemove = (*head);
+int smallestBurstIndex(node_ready *head){
+    int min = INT_MAX;
+    int index = 0;
+    int val = -1;
+    if(head != NULL){
+        node_ready * current = head;
+        while (current != NULL) {
+            if(current->val->burst < min){
+                val = index;
+                //printf("val en la iteracion %d es %d: ", index, val);
+                min = current->val->burst;
+            }
+            index++;
+            current = current->next;
         }
-        head = toRemove->next;
     }
+    return val;
+}
 
-    next_node = toRemove->next;
-    retval = toRemove->val;
-    free(toRemove);
-    toRemove = next_node;
-
-    return retval;
-
-
+int biggestPriorityIndex(node_ready *head){
+    int min = INT_MAX;
+    int index = 0;
+    int val = -1;
+    if(head != NULL){
+        node_ready * current = head;
+        while (current != NULL) {
+            if(current->val->prioridad < min){
+                val = index;
+                //printf("val en la iteracion %d es %d: ", index, val);
+                min = current->val->prioridad;
+            }
+            index++;
+            current = current->next;
+        }
+    }
+    return val;
 }
 
 
@@ -200,17 +207,23 @@ void changemode(int dir){
 }
 // Driver function
 int main() 
-{  
+{ 
     struct PCB toInsert = {1,5,5,0,13};
     ready_queue= push(ready_queue, toInsert);
-    struct PCB toInsert2 = {2,3,5,0,12};
+    struct PCB toInsert2 = {2,3,4,0,12};
     ready_queue= push(ready_queue, toInsert2);
-    struct PCB toInsert3 = {3,1,5,0,12};
+    struct PCB toInsert3 =  {3,2,2,0,12};
     ready_queue= push(ready_queue, toInsert3); 
-    printf("hola");  
-    struct PCB min_burst = *pop_spf(ready_queue);
-    //print_list(ready_queue);
-    //print_process(pop_spf(ready_queue));
+     struct PCB toInsert4 = {4,1,2,0,12};
+    ready_queue= push(ready_queue, toInsert4); 
+     struct PCB toInsert5 = {5,1,2,0,12};
+    ready_queue= push(ready_queue, toInsert5); 
+    //struct PCB* p_PCB = pop_spf(ready_queue);   //Pasa a ejecutarse el proceso.
+    print_list(ready_queue);
+    int i = smallestBurstIndex(ready_queue);
+    printf("Indice de menor burst: %d\n", i);
+    int j = biggestPriorityIndex(ready_queue);
+    printf("Indice de mayor prioridad: %d", j);
     return 0;
 } 
 int check(int exp, const char *mjs){
@@ -304,9 +317,11 @@ void * RR (void* quantum){
     }
     
 }
-/*
+
 void* SPF (){
-    struct PCB* p_PCB = pop_spf(ready_queue);   //Pasa a ejecutarse el proceso.
+    int index = smallestBurstIndex(ready_queue);
+    //CAMBIAR POP POR REMOVE_BY_INDEX con index
+    struct PCB* p_PCB = pop(ready_queue);   //Pasa a ejecutarse el proceso.
     struct PCB PCB = *((struct PCB*)p_PCB);
     
     pthread_mutex_lock(&lock);
@@ -322,7 +337,28 @@ void* SPF (){
 
     finish_queue = push(finish_queue,PCB); //Se agrega el proceso a la cola de terminados
     cantProcesos++;
-}*/
+}
+
+void* HPD (){
+    int index = biggestPriorityIndex(ready_queue);
+    //CAMBIAR POP POR REMOVE_BY_INDEX con index
+    struct PCB* p_PCB = pop(ready_queue);   //Pasa a ejecutarse el proceso.
+    struct PCB PCB = *((struct PCB*)p_PCB);
+    
+    pthread_mutex_lock(&lock);
+    PCB.tLlegada= TiempoGlobal;           //Se le asigna el tiempo de entrada al procesador
+    pthread_mutex_unlock(&lock);
+    
+    for(int i; i<PCB.burst;i++){           //Ejecuto
+            sleep(1);
+    }
+    pthread_mutex_lock(&lock); 
+    PCB.tSalida = TiempoGlobal;           //Se le asigna el tiempo de salida del procesador
+    pthread_mutex_unlock(&lock);
+
+    finish_queue = push(finish_queue,PCB); //Se agrega el proceso a la cola de terminados
+    cantProcesos++;
+}
 
 void* timeG(){
     pthread_mutex_lock(&lock);
