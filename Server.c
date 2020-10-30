@@ -130,6 +130,35 @@ struct PCB *pop(node_ready ** head) {
     return retval;
 }
 
+struct PCB *remove_by_index(node_ready ** head, int n) {
+    int i = 0;
+    struct PCB *retval = NULL;
+    if(*head != NULL){
+        node_ready * current = *head;
+        node_ready * temp_node = NULL;
+
+        if (n == 0) {
+            return pop(head);
+        }
+
+        for (i = 0; i < n-1; i++) {
+            if (current->next == NULL) {
+                printf("entro a 146 con i = %d",i);
+                return NULL; //habia -1
+            }
+            current = current->next;
+        }
+
+        temp_node = current->next;
+        retval = temp_node->val;
+        current->next = temp_node->next;
+        free(temp_node);
+
+        return retval;
+    }
+}
+
+
 int smallestBurstIndex(node_ready *head){
     int min = INT_MAX;
     int index = 0;
@@ -173,6 +202,8 @@ void* job_scheduler(void* client_Socket);
 void* consult_queue(void* queue);
 void* timeG();
 void* fifo ();
+void* SPF();
+void* HPF();
 void * RR (void* quantum);
 void changemode(int);
 int  kbhit(void);
@@ -208,22 +239,99 @@ void changemode(int dir){
 // Driver function
 int main() 
 { 
-    struct PCB toInsert = {1,5,5,0,13};
-    ready_queue= push(ready_queue, toInsert);
-    struct PCB toInsert2 = {2,3,4,0,12};
-    ready_queue= push(ready_queue, toInsert2);
-    struct PCB toInsert3 =  {3,2,2,0,12};
-    ready_queue= push(ready_queue, toInsert3); 
-     struct PCB toInsert4 = {4,1,2,0,12};
-    ready_queue= push(ready_queue, toInsert4); 
-     struct PCB toInsert5 = {5,1,2,0,12};
-    ready_queue= push(ready_queue, toInsert5); 
-    //struct PCB* p_PCB = pop_spf(ready_queue);   //Pasa a ejecutarse el proceso.
-    print_list(ready_queue);
-    int i = smallestBurstIndex(ready_queue);
-    printf("Indice de menor burst: %d\n", i);
-    int j = biggestPriorityIndex(ready_queue);
-    printf("Indice de mayor prioridad: %d", j);
+     /******Menú de selección del algoritmo*******/
+    char answer[2];
+    char quantum[2];
+    int validateAlgorithm = getLine("1.FIFO\n2.SJF\n3.HPF\n4.Round Robin.\nSelect the number of scheduler algorithm: ",answer,sizeof(answer));
+    if(validateAlgorithm == 1){
+        puts("You have no select anything, try again.");
+        return 0;
+    }
+    if(validateAlgorithm == 2){
+        puts("Your input is too long, try again.");
+        return 0;
+    }
+    if (answer[0]!='1' && answer[0]!='2' && answer[0]!='3' && answer[0]!='4'){
+        puts("That is an invalid number, please try again.");
+        return 0;
+    }
+    if(answer[0]=='4'){
+        int q= getLine("Select the quantum of the algorithm: ",quantum,sizeof(quantum));
+        if(q == 1){
+        puts("You have no select anything, try again.");
+        return 0;
+        }
+        if(q == 2){
+            puts("Your input is too long, try again.");
+            return 0;
+        }
+    }
+    
+    printf("You have select the option #%s",answer);
+
+    /******lógica de conexión al del servidor*******/
+	int server_socket, client_socket, addr_size;
+    SA_IN server_addr, client_addr;
+    //Create socket verification
+    check((server_socket = socket(AF_INET, SOCK_STREAM, 0)), "failed to create socket");
+	printf("Socket successfully created..\n"); 
+	//bzero(&server_addr, sizeof(servaddr)); // limpiamos la estructura del serverAdress, ojo que recibe la drección de memoria y la cantidad de lo que limpia
+
+	// assign IP, PORT 
+	server_addr.sin_family = AF_INET; 
+	server_addr.sin_addr.s_addr = INADDR_ANY; 
+	server_addr.sin_port = htons(PORT); 
+
+	// Binding newly created socket to given IP and verification 
+	check((bind(server_socket, (SA*)&server_addr, sizeof(server_addr))), "bind feiled..");
+    printf("Socket successfully binded..\n"); 
+
+	// Now server is ready to listen and verification 
+    check((listen(server_socket, SERVER_BACKLOG)),"Listen failed");
+	printf("Server listening..\n");   
+    
+    /******Ciclo principal*******/
+    while(true){
+        printf("waiting for connections\n");
+        //wait for, and eventually accept an incoming connection
+        addr_size = sizeof(SA_IN);
+        check(client_socket = 
+                accept(server_socket, (SA*)&client_addr, (socklen_t*)&addr_size),
+                "Accept failed");
+        printf("Connected\n");    
+        // hacer nuestra lógica con conexiones        
+        
+
+        consult_queue(ready_queue);
+        
+        pthread_t t;
+        int*pclient = malloc(sizeof(int));
+        *pclient = client_socket;        
+        pthread_create(&t,NULL,job_scheduler,pclient);
+
+        pthread_t t_time;
+        pthread_create(&t_time,NULL,timeG,NULL);
+
+        if(answer[0] == '1'){
+            //pthread_t t_fifo;
+            //pthread_create(&t_fifo,NULL,fifo,NULL);
+
+        }
+        if(answer[0] == '2'){
+            puts("not implemented yet");
+            
+        }
+        if(answer[0] == '3'){
+            puts("not implemented yet");
+        }
+        if(answer[0] == '4'){
+            //pthread_t t_RR;
+            //pthread_create(&t_RR,NULL,RR,quantum);
+        }
+
+    }
+    /******Impresión final*******/
+    printFinish();
     return 0;
 } 
 int check(int exp, const char *mjs){
@@ -269,8 +377,51 @@ void* job_scheduler (void* p_client_Socket){
     
 }
 
+int check(int exp, const char *mjs){
+    if(exp == SOCKETEROR){
+        perror(mjs);
+        exit(1);
+    }
+    return exp;
+}
+
+void* job_scheduler (void* p_client_Socket){
+    
+    int client_Socket = *((int*)p_client_Socket);
+    free(p_client_Socket); //We don't need it anymore..
+    char buffer[MAX];
+    size_t bytes_read; 
+    
+    while (bytes_read = read(client_Socket, buffer, sizeof(buffer)) >0 )
+    {
+        check(bytes_read, "Recv error");
+        buffer[MAX] = '\0'; // terminate the mjs and remove the enter
+
+        fflush(stdout);
+        //Se crea la estructura          15                3
+        char* p = buffer;
+        char* midPoint;
+	    long int burst = strtol(p,&midPoint,10);
+	    p = midPoint;
+	    long int priority = strtol(p,&midPoint,10);        
+        struct PCB p_c_b = {PID, (int)(burst) , (int)(priority) ,TiempoGlobal,0};                
+        //Agregarla a la cola
+        pthread_mutex_lock(&lock);
+        ready_queue = push(ready_queue,p_c_b);        
+        pthread_mutex_unlock(&lock);
+        bzero(buffer, sizeof(buffer)); // limpiamos el buffer
+		sprintf(buffer,"%d",PID);
+        write(client_Socket,buffer,sizeof(buffer));   
+        close(client_Socket); 
+        printf("closing connection\n");
+        PID++;
+    }     
+    return NULL;
+    
+}
+
 void* fifo (){
-    struct PCB* p_PCB = pop(ready_queue);   //Pasa a ejecutarse el proceso.
+    struct PCB* p_PCB = pop(&ready_queue);   //Pasa a ejecutarse el proceso.
     struct PCB PCB = *((struct PCB*)p_PCB);
     
     pthread_mutex_lock(&lock);
@@ -289,15 +440,17 @@ void* fifo (){
 }
 
 void * RR (void* quantum){
-    struct PCB* p_PCB = pop(ready_queue);   //Pasa a ejecutarse el proceso.
+    struct PCB* p_PCB = pop(&ready_queue);   //Pasa a ejecutarse el proceso.
     struct PCB PCB = *((struct PCB*)p_PCB);
     
     char *q = malloc(sizeof(2));
     q=quantum;
     
-    pthread_mutex_lock(&lock);
-    PCB.tLlegada= TiempoGlobal;           //Se le asigna el tiempo de entrada al procesador
-    pthread_mutex_unlock(&lock);
+    if(PCB.tLlegada == 0){
+        pthread_mutex_lock(&lock);
+        PCB.tLlegada= TiempoGlobal;           //Se le asigna el tiempo de entrada al procesador
+        pthread_mutex_unlock(&lock);
+    }
     
     for(int i; i<atoi(q[0]);i++){           //Ejecuto
             sleep(1);
@@ -321,7 +474,7 @@ void * RR (void* quantum){
 void* SPF (){
     int index = smallestBurstIndex(ready_queue);
     //CAMBIAR POP POR REMOVE_BY_INDEX con index
-    struct PCB* p_PCB = pop(ready_queue);   //Pasa a ejecutarse el proceso.
+    struct PCB* p_PCB = remove_by_index(&ready_queue, index);   //Pasa a ejecutarse el proceso.
     struct PCB PCB = *((struct PCB*)p_PCB);
     
     pthread_mutex_lock(&lock);
@@ -339,10 +492,10 @@ void* SPF (){
     cantProcesos++;
 }
 
-void* HPD (){
+void* HPF (){
     int index = biggestPriorityIndex(ready_queue);
     //CAMBIAR POP POR REMOVE_BY_INDEX con index
-    struct PCB* p_PCB = pop(ready_queue);   //Pasa a ejecutarse el proceso.
+    struct PCB* p_PCB = remove_by_index(&ready_queue,index);   //Pasa a ejecutarse el proceso.
     struct PCB PCB = *((struct PCB*)p_PCB);
     
     pthread_mutex_lock(&lock);
