@@ -454,9 +454,9 @@ void* job_scheduler (void* p_client_Socket){
 
 void* fifo (){
     if(ready_queue != NULL){
-        struct PCB* p_PCB = pop(&ready_queue);   //Pasa a ejecutarse el proceso.
-        struct PCB PCB = *((struct PCB*)p_PCB);
         pthread_mutex_lock(&lock);
+        struct PCB* p_PCB = pop(&ready_queue);   //Pasa a ejecutarse el proceso.
+        struct PCB PCB = *((struct PCB*)p_PCB);        
         PCB.tLlegada= TiempoGlobal;           //Se le asigna el tiempo de entrada al procesador
         pthread_mutex_unlock(&lock);
         printf("PID #%d with burst: %d and priority:%d is going to be executed\n\n",PCB.PID, PCB.burst,PCB.prioridad);
