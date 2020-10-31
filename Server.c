@@ -23,10 +23,11 @@ typedef struct sockaddr_in SA_IN;
 typedef struct sockaddr SA;
 struct PCB{
     int PID;
-    int burst;
+    int burst;    
     int prioridad;
     int tLlegada;
     int tSalida;
+    int burstcopia;
 };
 typedef struct node {
     struct PCB *val;
@@ -39,9 +40,8 @@ int cantProcesos=0;
 int PID = 1;
 node_ready *ready_queue =NULL;
 node_ready *finish_queue =NULL;
-bool flag= true;
+char quantum[2];
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-// queue finished;
 
 static int getLine (char *prmpt, char *buff, size_t sz) {
     int ch, extra;
@@ -73,8 +73,7 @@ void print_list(node_ready * head) {
             printf("PID: %d\t Burst: %d\t Priority: %d\n", current->val->PID, current->val->burst, current->val->prioridad);
             current = current->next;
         }
-    }
-    flag= !flag;                    
+    }                  
 }
 
 void print_process(struct PCB * pr){
@@ -82,6 +81,7 @@ void print_process(struct PCB * pr){
         printf("PID: %d\t Burst: %d\t Priority: %d\n", pr->PID, pr->burst, pr->prioridad);
     }
 }
+
 //Ingresa valores al final de la cola
 node_ready* push(node_ready * head, struct PCB val) {
     if(head == NULL){
@@ -94,6 +94,7 @@ node_ready* push(node_ready * head, struct PCB val) {
         head->val->prioridad = val.prioridad;
         head->val->tLlegada = val.tLlegada;
         head->val->tSalida = val.tSalida;
+        head->val->burstcopia = val.burstcopia;
         head->next =NULL;        
     } else{
         node_ready * current = head;
@@ -108,6 +109,7 @@ node_ready* push(node_ready * head, struct PCB val) {
         current->next->val->prioridad = val.prioridad;
         current->next->val->tLlegada = val.tLlegada;
         current->next->val->tSalida = val.tSalida;
+        current->next->val->burstcopia = val.burstcopia;
         current->next->next = NULL;
     }
     return head;
@@ -143,7 +145,6 @@ struct PCB *remove_by_index(node_ready ** head, int n) {
 
         for (i = 0; i < n-1; i++) {
             if (current->next == NULL) {
-                printf("entro a 146 con i = %d",i);
                 return NULL; //habia -1
             }
             current = current->next;
@@ -197,51 +198,112 @@ int biggestPriorityIndex(node_ready *head){
     return val;
 }
 
+int biggestExitTimeIndex(node_ready *head){
+    int max = INT_MIN;
+    int index = 0;
+    int val = -1;
+    if(head != NULL){
+        node_ready * current = head;
+        while (current != NULL) {
+            if(current->val->tSalida > max){
+                val = index;
+                //printf("val en la iteracion %d es %d: ", index, val);
+                max = current->val->tSalida;
+            }
+            index++;
+            current = current->next;
+        }
+    }
+    return val;
+}
 
 void* job_scheduler(void* client_Socket);
-void* consult_queue(void* queue);
+void* consult_queue();
 void* timeG();
 void* fifo ();
-void* SPF();
+void* SJF();
 void* HPF();
-void * RR (void* quantum);
+void * RR ();
 void changemode(int);
 int  kbhit(void);
-
+void printFinish();
 int check(int exp, const char* mjs);
-int kbhit (void)
+
+int kbhit(){
+    struct timeval tv;
+    fd_set fds;
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+    FD_ZERO(&fds);
+    FD_SET(STDIN_FILENO, &fds); //STDIN_FILENO is 0
+    select(STDIN_FILENO+1, &fds, NULL, NULL, &tv);
+    return FD_ISSET(STDIN_FILENO, &fds);
+}
+
+void nonblock(int state)
 {
-  struct timeval tv;
-  fd_set *rdfs;
-  rdfs = (fd_set*)malloc(sizeof(fd_set));
-  tv.tv_sec = 0;
-  tv.tv_usec = 0;
+    struct termios ttystate;
 
-  FD_ZERO(rdfs);
-  FD_SET (STDIN_FILENO, rdfs);
-  select(STDIN_FILENO+1, rdfs, NULL, NULL, &tv);  
-  int returnValue = FD_ISSET(STDIN_FILENO, rdfs);    
-  return returnValue;
-}
-void changemode(int dir){
-  static struct termios oldt, newt;
+    //get the terminal state
+    tcgetattr(STDIN_FILENO, &ttystate);
 
-  if ( dir == 1 )
-  {
-    tcgetattr( STDIN_FILENO, &oldt);
-    newt = oldt;
-    newt.c_lflag &= ~( ICANON | ECHO );
-    tcsetattr( STDIN_FILENO, TCSANOW, &newt);
-  }
-  else
-    tcsetattr( STDIN_FILENO, TCSANOW, &oldt);
+    if (state==1)
+    {
+        //turn off canonical mode
+        ttystate.c_lflag &= ~ICANON;
+        //minimum of number input read.
+        ttystate.c_cc[VMIN] = 1;
+    }
+    else if (state==0)
+    {
+        //turn on canonical mode
+        ttystate.c_lflag |= ICANON;
+    }
+    //set the terminal attributes.
+    tcsetattr(STDIN_FILENO, TCSANOW, &ttystate);
+
 }
-// Driver function
+
+void printFinish(){
+    if (cantProcesos == 0){
+        printf("Theres was no process registered as finished...\n");
+    }else{
+        printf("Number of executed process: %d\n", cantProcesos); //Cantidad de procesos ejecutados
+        int biggest= biggestExitTimeIndex(finish_queue);        
+        int idleCPU = TiempoGlobal-biggest;    //Cantidad de segundos con CPU ocioso.//
+        printf("Idle CPU time: %d\n", idleCPU); //Cantidad de procesos ejecutados
+        int promTAT =0;
+        int promWT =0;
+        if(finish_queue != NULL){
+            node_ready * current = finish_queue;    
+            while (current != NULL) {                            //•Tabla de TAT y WT para los procesos ejecutados
+                int TAT= current->val->tSalida - current->val->tLlegada;
+                int WT = TAT - current->val->burst;
+                promTAT+=TAT;
+                promWT+=WT;
+                printf("Proceso p%d  TAT:%d WT:%d\n",current->val->PID,TAT,WT);
+                current = current->next;
+            }
+                                                                //•Promedio de Waiting Time•Promedio de Turn Around Time  
+            printf("Promedio del TAT:%d Promedio del WT:%d\n",(promTAT/cantProcesos),(promWT/cantProcesos));
+        }
+    }
+
+}
+
+int check(int exp, const char *mjs){
+    if(exp == SOCKETEROR){
+        perror(mjs);
+        exit(1);
+    }
+    return exp;
+}
+
 int main() 
 { 
-     /******Menú de selección del algoritmo*******/
+    /******Menú de selección del algoritmo*******/
     char answer[2];
-    char quantum[2];
+
     int validateAlgorithm = getLine("1.FIFO\n2.SJF\n3.HPF\n4.Round Robin.\nSelect the number of scheduler algorithm: ",answer,sizeof(answer));
     if(validateAlgorithm == 1){
         puts("You have no select anything, try again.");
@@ -267,7 +329,7 @@ int main()
         }
     }
     
-    printf("You have select the option #%s",answer);
+    printf("You have select the option #%s\n\n",answer);
 
     /******lógica de conexión al del servidor*******/
 	int server_socket, client_socket, addr_size;
@@ -290,8 +352,23 @@ int main()
     check((listen(server_socket, SERVER_BACKLOG)),"Listen failed");
 	printf("Server listening..\n");   
     
+    char c;
+    int i=0;
     /******Ciclo principal*******/
-    while(true){
+    nonblock(1);
+    while(!i){
+        usleep(1);
+        i=kbhit();
+        if (i!=0)
+        {
+            c=fgetc(stdin);
+            if (c=='c'){
+                consult_queue(ready_queue);
+                i=0;
+            } if (c=='q'){
+                i=1;                
+            }            
+        }
         printf("waiting for connections\n");
         //wait for, and eventually accept an incoming connection
         addr_size = sizeof(SA_IN);
@@ -299,48 +376,45 @@ int main()
                 accept(server_socket, (SA*)&client_addr, (socklen_t*)&addr_size),
                 "Accept failed");
         printf("Connected\n");    
-        // hacer nuestra lógica con conexiones        
         
+        /**********Lógica del CPU***********/       
 
-        consult_queue(ready_queue);
-        
+        /******Job scheduler*******/       
         pthread_t t;
         int*pclient = malloc(sizeof(int));
         *pclient = client_socket;        
         pthread_create(&t,NULL,job_scheduler,pclient);
+        
+        /******Tiempo global*******/
+        pthread_t time;
+        pthread_create(&time,NULL,timeG,NULL);
 
-        pthread_t t_time;
-        pthread_create(&t_time,NULL,timeG,NULL);
-
+        /******Job scheduler*******/       
+        
         if(answer[0] == '1'){
-            //pthread_t t_fifo;
-            //pthread_create(&t_fifo,NULL,fifo,NULL);
-
+            pthread_t t_fifo;
+            pthread_create(&t_fifo,NULL,fifo,NULL);
         }
         if(answer[0] == '2'){
-            puts("not implemented yet");
-            
+            pthread_t t_SJF;
+            pthread_create(&t_SJF,NULL,SJF,NULL);            
         }
         if(answer[0] == '3'){
-            puts("not implemented yet");
+            pthread_t t_HPF;
+            pthread_create(&t_HPF,NULL,HPF,NULL);
         }
         if(answer[0] == '4'){
-            //pthread_t t_RR;
-            //pthread_create(&t_RR,NULL,RR,quantum);
+            pthread_t t_RR;
+            pthread_create(&t_RR,NULL,RR,quantum);
         }
 
     }
+    nonblock(0);
     /******Impresión final*******/
     printFinish();
     return 0;
 } 
-int check(int exp, const char *mjs){
-    if(exp == SOCKETEROR){
-        perror(mjs);
-        exit(1);
-    }
-    return exp;
-}
+
 
 void* job_scheduler (void* p_client_Socket){
     
@@ -361,156 +435,152 @@ void* job_scheduler (void* p_client_Socket){
 	    long int burst = strtol(p,&midPoint,10);
 	    p = midPoint;
 	    long int priority = strtol(p,&midPoint,10);        
-        struct PCB p_c_b = {PID, (int)(burst) , (int)(priority) ,TiempoGlobal,0};                
+        struct PCB p_c_b = {PID, (int)(burst) , (int)(priority) ,TiempoGlobal,0 ,(int)(burst)};           
         //Agregarla a la cola
         pthread_mutex_lock(&lock);
         ready_queue = push(ready_queue,p_c_b);        
         pthread_mutex_unlock(&lock);
         bzero(buffer, sizeof(buffer)); // limpiamos el buffer
 		sprintf(buffer,"%d",PID);
+        PID++;
         write(client_Socket,buffer,sizeof(buffer));   
         close(client_Socket); 
         printf("closing connection\n");
-        PID++;
-    }     
-    return NULL;
-    
-}
-
-int check(int exp, const char *mjs){
-    if(exp == SOCKETEROR){
-        perror(mjs);
-        exit(1);
-    }
-    return exp;
-}
-
-void* job_scheduler (void* p_client_Socket){
-    
-    int client_Socket = *((int*)p_client_Socket);
-    free(p_client_Socket); //We don't need it anymore..
-    char buffer[MAX];
-    size_t bytes_read; 
-    
-    while (bytes_read = read(client_Socket, buffer, sizeof(buffer)) >0 )
-    {
-        check(bytes_read, "Recv error");
-        buffer[MAX] = '\0'; // terminate the mjs and remove the enter
-
-        fflush(stdout);
-        //Se crea la estructura          15                3
-        char* p = buffer;
-        char* midPoint;
-	    long int burst = strtol(p,&midPoint,10);
-	    p = midPoint;
-	    long int priority = strtol(p,&midPoint,10);        
-        struct PCB p_c_b = {PID, (int)(burst) , (int)(priority) ,TiempoGlobal,0};                
-        //Agregarla a la cola
-        pthread_mutex_lock(&lock);
-        ready_queue = push(ready_queue,p_c_b);        
-        pthread_mutex_unlock(&lock);
-        bzero(buffer, sizeof(buffer)); // limpiamos el buffer
-		sprintf(buffer,"%d",PID);
-        write(client_Socket,buffer,sizeof(buffer));   
-        close(client_Socket); 
-        printf("closing connection\n");
-        PID++;
+        
     }     
     return NULL;
     
 }
 
 void* fifo (){
-    struct PCB* p_PCB = pop(&ready_queue);   //Pasa a ejecutarse el proceso.
-    struct PCB PCB = *((struct PCB*)p_PCB);
-    
-    pthread_mutex_lock(&lock);
-    PCB.tLlegada= TiempoGlobal;           //Se le asigna el tiempo de entrada al procesador
-    pthread_mutex_unlock(&lock);
-    
-    for(int i; i<PCB.burst;i++){           //Ejecuto
-            sleep(1);
-    }
-    pthread_mutex_lock(&lock); 
-    PCB.tSalida = TiempoGlobal;           //Se le asigna el tiempo de salida del procesador
-    pthread_mutex_unlock(&lock);
-
-    finish_queue = push(finish_queue,PCB); //Se agrega el proceso a la cola de terminados
-    cantProcesos++;
-}
-
-void * RR (void* quantum){
-    struct PCB* p_PCB = pop(&ready_queue);   //Pasa a ejecutarse el proceso.
-    struct PCB PCB = *((struct PCB*)p_PCB);
-    
-    char *q = malloc(sizeof(2));
-    q=quantum;
-    
-    if(PCB.tLlegada == 0){
+    if(ready_queue != NULL){
+        struct PCB* p_PCB = pop(&ready_queue);   //Pasa a ejecutarse el proceso.
+        struct PCB PCB = *((struct PCB*)p_PCB);
         pthread_mutex_lock(&lock);
         PCB.tLlegada= TiempoGlobal;           //Se le asigna el tiempo de entrada al procesador
         pthread_mutex_unlock(&lock);
-    }
-    
-    for(int i; i<atoi(q[0]);i++){           //Ejecuto
-            sleep(1);
-            PCB.burst= PCB.burst-1;            
-    }
-    if(PCB.burst!=0){
-        pthread_mutex_lock(&lock); 
-        ready_queue = push(ready_queue,PCB); //reingresa a la cola del ready.
+        printf("PID #%d with burst: %d and priority:%d is going to be executed\n\n",PCB.PID, PCB.burst,PCB.prioridad);
+        pthread_mutex_lock(&lock);
+        for(int i=0; i<PCB.burst;i++){           //Ejecuto
+                sleep(1);
+                
+                TiempoGlobal++;
+                
+        }
         pthread_mutex_unlock(&lock);
-    }else{
+
         pthread_mutex_lock(&lock); 
         PCB.tSalida = TiempoGlobal;           //Se le asigna el tiempo de salida del procesador
         pthread_mutex_unlock(&lock);
-
+        printf("The process PID#%d arrived in:%d, finished at:%d, with burst:%d and priority:%d have finished...\n\n",PCB.PID,PCB.tLlegada,PCB.tSalida, PCB.burst,PCB.prioridad);
         finish_queue = push(finish_queue,PCB); //Se agrega el proceso a la cola de terminados
         cantProcesos++;
     }
     
 }
 
-void* SPF (){
-    int index = smallestBurstIndex(ready_queue);
-    //CAMBIAR POP POR REMOVE_BY_INDEX con index
-    struct PCB* p_PCB = remove_by_index(&ready_queue, index);   //Pasa a ejecutarse el proceso.
-    struct PCB PCB = *((struct PCB*)p_PCB);
-    
-    pthread_mutex_lock(&lock);
-    PCB.tLlegada= TiempoGlobal;           //Se le asigna el tiempo de entrada al procesador
-    pthread_mutex_unlock(&lock);
-    
-    for(int i; i<PCB.burst;i++){           //Ejecuto
-            sleep(1);
-    }
-    pthread_mutex_lock(&lock); 
-    PCB.tSalida = TiempoGlobal;           //Se le asigna el tiempo de salida del procesador
-    pthread_mutex_unlock(&lock);
+void * RR (){    
+    if(ready_queue != NULL){
+        pthread_mutex_lock(&lock); 
+        struct PCB* p_PCB = pop(&ready_queue);   //Pasa a ejecutarse el proceso.        
+        struct PCB PCB = *((struct PCB*)p_PCB);
+        pthread_mutex_unlock(&lock); 
+        
+        if(PCB.tLlegada == 0){
+            pthread_mutex_lock(&lock);
+            PCB.tLlegada= TiempoGlobal;           //Se le asigna el tiempo de entrada al procesador
+            pthread_mutex_unlock(&lock);
+        }
+        printf("PID #%d with burst: %d and priority:%d is going to be executed\n\n",PCB.PID, PCB.burst,PCB.prioridad);    
+        printf("PID #%d with burstcopia: %d Antes de ejecutar\n",PCB.PID,PCB.burstcopia);    
+        
+        pthread_mutex_lock(&lock); 
+                        //5                      3
+        for(int i=0; i<atoi(quantum);i++){           //Ejecuto                
+                if(PCB.burstcopia ==0){
+                    break;
+                }
+                sleep(1);
+                PCB.burstcopia--;
+                TiempoGlobal++;           
+        }
+        printf("PID #%d with burstcopia: %d luego de ejecutar\n",PCB.PID,PCB.burstcopia);    
+        pthread_mutex_unlock(&lock);
 
-    finish_queue = push(finish_queue,PCB); //Se agrega el proceso a la cola de terminados
-    cantProcesos++;
+        if(PCB.burstcopia!=0){
+            pthread_mutex_lock(&lock);             
+            ready_queue = push(ready_queue,PCB); //reingresa a la cola del ready.
+            printf("PID #%d with burstcopia: %d PUSHEADO\n",PCB.PID,PCB.burstcopia);    
+            pthread_mutex_unlock(&lock);
+        }else{
+            pthread_mutex_lock(&lock); 
+            PCB.tSalida = TiempoGlobal;           //Se le asigna el tiempo de salida del procesador
+            pthread_mutex_unlock(&lock);
+            printf("The process PID#%d arrived in:%d, finished at:%d, with burst:%d and priority:%d have finished...\n\n",PCB.PID,PCB.tLlegada,PCB.tSalida, PCB.burst,PCB.prioridad);
+            finish_queue = push(finish_queue,PCB); //Se agrega el proceso a la cola de terminados
+            cantProcesos++;
+        }
+    }
+}
+
+void* SJF (){
+    if(ready_queue != NULL){
+        pthread_mutex_lock(&lock);
+        int index = smallestBurstIndex(ready_queue);
+        struct PCB* p_PCB = remove_by_index(&ready_queue, index);   //Pasa a ejecutarse el proceso.
+        struct PCB PCB = *((struct PCB*)p_PCB);
+        pthread_mutex_unlock(&lock);       
+        
+        pthread_mutex_lock(&lock);
+        PCB.tLlegada= TiempoGlobal;           //Se le asigna el tiempo de entrada al procesador
+        pthread_mutex_unlock(&lock);
+
+        printf("PID #%d with burst: %d and priority:%d is going to be executed\n\n",PCB.PID, PCB.burst,PCB.prioridad);
+        pthread_mutex_lock(&lock); 
+        for(int i=0; i<PCB.burst;i++){           //Ejecuto
+                sleep(1);
+                TiempoGlobal++;
+        }
+        pthread_mutex_unlock(&lock); 
+
+        pthread_mutex_lock(&lock); 
+        PCB.tSalida = TiempoGlobal;           //Se le asigna el tiempo de salida del procesador
+        pthread_mutex_unlock(&lock);
+        
+        printf("The process PID#%d arrived in:%d, finished at:%d, with burst:%d and priority:%d have finished...\n\n",PCB.PID,PCB.tLlegada,PCB.tSalida, PCB.burst,PCB.prioridad);
+        finish_queue = push(finish_queue,PCB); //Se agrega el proceso a la cola de terminados
+        cantProcesos++;
+        }    
 }
 
 void* HPF (){
-    int index = biggestPriorityIndex(ready_queue);
-    //CAMBIAR POP POR REMOVE_BY_INDEX con index
-    struct PCB* p_PCB = remove_by_index(&ready_queue,index);   //Pasa a ejecutarse el proceso.
-    struct PCB PCB = *((struct PCB*)p_PCB);
-    
-    pthread_mutex_lock(&lock);
-    PCB.tLlegada= TiempoGlobal;           //Se le asigna el tiempo de entrada al procesador
-    pthread_mutex_unlock(&lock);
-    
-    for(int i; i<PCB.burst;i++){           //Ejecuto
-            sleep(1);
-    }
-    pthread_mutex_lock(&lock); 
-    PCB.tSalida = TiempoGlobal;           //Se le asigna el tiempo de salida del procesador
-    pthread_mutex_unlock(&lock);
+    if(ready_queue != NULL){
+        pthread_mutex_lock(&lock);
+        int index = biggestPriorityIndex(ready_queue);        
+        struct PCB* p_PCB = remove_by_index(&ready_queue,index);   //Pasa a ejecutarse el proceso.
+        struct PCB PCB = *((struct PCB*)p_PCB);
+        pthread_mutex_unlock(&lock);
 
-    finish_queue = push(finish_queue,PCB); //Se agrega el proceso a la cola de terminados
-    cantProcesos++;
+        pthread_mutex_lock(&lock);
+        PCB.tLlegada= TiempoGlobal;           //Se le asigna el tiempo de entrada al procesador
+        pthread_mutex_unlock(&lock);
+        
+        printf("PID #%d with burst: %d and priority:%d is going to be executed\n\n",PCB.PID, PCB.burst,PCB.prioridad);
+        pthread_mutex_lock(&lock); 
+        for(int i=0; i<PCB.burst;i++){           //Ejecuto
+                sleep(1);
+                TiempoGlobal++;
+        }
+        pthread_mutex_unlock(&lock); 
+
+        pthread_mutex_lock(&lock); 
+        PCB.tSalida = TiempoGlobal;           //Se le asigna el tiempo de salida del procesador
+        pthread_mutex_unlock(&lock);
+
+        printf("The process PID#%d arrived in:%d, finished at:%d, with burst:%d and priority:%d have finished...\n\n",PCB.PID,PCB.tLlegada,PCB.tSalida, PCB.burst,PCB.prioridad);
+        finish_queue = push(finish_queue,PCB); //Se agrega el proceso a la cola de terminados
+        cantProcesos++;
+    }
 }
 
 void* timeG(){
@@ -519,32 +589,9 @@ void* timeG(){
     pthread_mutex_unlock(&lock);
 }
 
-void printFinish(){
-    printf("Number of executed process: %d\n", cantProcesos); //Cantidad de procesos ejecutados
-    //Cantidad de segundos con CPU ocioso. Pendiente... //
-    int promTAT =0;
-    int promWT =0;
-    if(finish_queue != NULL){
-        node_ready * current = finish_queue;    
-        while (current != NULL) {                            //•Tabla de TAT y WT para los procesos ejecutados
-            int TAT= current->val->tSalida - current->val->tLlegada;
-            int WT = TAT - current->val->burst;
-            promTAT+=TAT;
-            promWT+=WT;
-            printf("Proceso p%d  TAT:%d WT%d\n",current->val->PID,TAT,WT);
-            current = current->next;
-        }
-                                                            //•Promedio de Waiting Time•Promedio de Turn Around Time  
-        printf("Promedio del TAT:%d Promedio del WT%d\n",(promTAT/cantProcesos),(promWT/cantProcesos));
-    }
-    
-      
-}
-
-void* consult_queue(void* queue){        
-    if (kbhit() && flag){    
-    node_ready rq = *((node_ready*)queue);
-    print_list(&rq);
-    }
+void* consult_queue(){  
+    pthread_mutex_lock(&lock);
+    print_list(ready_queue);
+    pthread_mutex_unlock(&lock);
     
 }
